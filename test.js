@@ -1,36 +1,80 @@
 const express = require('express');
+const pool = require('./connection');
 const app = express();
 
 app.use(express.json());
 
-app.get('/api/items', (req, res) => {
-  res.send('List of items');
+// GET all items
+app.get('/api/items', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM items ORDER BY id');
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching items:', err);
+    res.status(500).send('Server error');
+  }
 });
 
-app.post('/api/items', (req, res) => {
-   const newItem = req.body;
-  if (!newItem.name) {
-    return res.status(400).send('Item name is required');
+// POST new item
+app.post('/api/items', async (req, res) => {
+  const { name, description, price, in_stock } = req.body;
+
+  if (!name || price == null) {
+    return res.status(400).send('Name and price are required');
   }
-  res.status(201).send(`Item ${newItem.name} created`);
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO items (name, description, price, in_stock)
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [name, description, price, in_stock ?? true]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('Error adding item:', err);
+    res.status(500).send('Server error');
+  }
 });
 
-app.put('/api/items/:id', (req, res) => {
-  const itemId = req.params.id;
-  const updatedItem = req.body;
-  if (!itemId || !updatedItem.name) {
-    return res.status(400).send('Item ID and name are required');
+// PUT update item
+app.put('/api/items/:id', async (req, res) => {
+  const { id } = req.params;
+  const { name, description, price, in_stock } = req.body;
+
+  try {
+    const result = await pool.query(
+      `UPDATE items SET name = $1, description = $2, price = $3, in_stock = $4
+       WHERE id = $5 RETURNING *`,
+      [name, description, price, in_stock, id]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).send('Item not found');
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error updating item:', err);
+    res.status(500).send('Server error');
   }
-  res.send(`Item with ID ${itemId} updated to ${updatedItem.name}`);
 });
 
+// DELETE item
+app.delete('/api/items/:id', async (req, res) => {
+  const { id } = req.params;
 
-app.delete('/api/items/:id', (req, res) => {
-  const itemId = req.params.id;
-  if (!itemId) {
-    return res.status(400).send('Item ID is required');
+  try {
+    const result = await pool.query('DELETE FROM items WHERE id = $1', [id]);
+
+    if (result.rowCount === 0) {
+      return res.status(404).send('Item not found');
+    }
+
+    res.send(`Item with ID ${id} deleted`);
+  } catch (err) {
+    console.error('Error deleting item:', err);
+    res.status(500).send('Server error');
   }
-  res.send(`Item with ID ${itemId} deleted`);
 });
 
 app.listen(3001, () => {
